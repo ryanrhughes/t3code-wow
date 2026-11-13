@@ -167,9 +167,10 @@ export function chosenModelSelection({ instanceId, model }, { providers, candida
 }
 
 export class T3Client extends EventEmitter {
-  constructor({ tokenProvider, log = () => {}, originProvider = null, label = 'local' }) {
+  constructor({ tokenProvider, log = () => {}, originProvider = null, label = 'local', connection = null }) {
     super();
     this.tokenProvider = tokenProvider;
+    this.connection = connection;
     // Where the server is: this machine's runtime file by default, or a function
     // that finds a remote machine's address.
     this.originProvider = originProvider || (async () => readRuntime().origin);
@@ -212,6 +213,13 @@ export class T3Client extends EventEmitter {
     if (this.stopped) return;
     this.setState('connecting');
     try {
+      if (this.connection) {
+        const url = await this.connection.socketUrl();
+        this.origin = new URL((await this.connection.authorize()).endpoint.httpBaseUrl).origin;
+        if (this.stopped) return;
+        await this.open(url);
+        return;
+      }
       this.origin = await this.originProvider();
       const runtime = { origin: this.origin };
       const token = await this.tokenProvider();
@@ -404,9 +412,10 @@ export class T3Client extends EventEmitter {
   // ---- reads ---------------------------------------------------------------
 
   async http(pathname) {
-    const token = await this.tokenProvider();
-    const res = await fetch(new URL(pathname, this.origin || (await this.originProvider())), {
-      headers: { authorization: `Bearer ${token}`, 'x-t3-orchestration-protocol': String(PROTOCOL) },
+    const url = new URL(pathname, this.origin || (await this.originProvider()));
+    const auth = this.connection ? await this.connection.headers('GET', url.href) : { authorization: `Bearer ${await this.tokenProvider()}` };
+    const res = await fetch(url, {
+      headers: { ...auth, 'x-t3-orchestration-protocol': String(PROTOCOL) },
     });
     if (!res.ok) throw new Error(`${pathname}: HTTP ${res.status}`);
     return res.json();

@@ -355,7 +355,7 @@ function cmdSync(args) {
 async function cmdRun(args) {
   const cfg = readConfig();
   const addonsDir = cfg.addonsDir || addonsDirOf(resolveWowDir(args, cfg));
-  const bridge = new Bridge({ addonsDir, config: { ...cfg, verbose: args.verbose || cfg.verbose } });
+  const bridge = new Bridge({ addonsDir, config: { desktopConnections: true, ...cfg, verbose: args.verbose || cfg.verbose } });
   const stop = () => {
     bridge.stop();
     process.exit(0);

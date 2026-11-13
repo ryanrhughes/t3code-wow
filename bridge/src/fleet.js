@@ -9,11 +9,12 @@
 import { EventEmitter } from 'node:events';
 import { T3Client, modelChoices } from './t3.js';
 import { remoteTokenProvider, remoteOriginProvider } from './envs.js';
+import { desktopTargets, DesktopConnect } from './desktop-connect.js';
 
 const SEP = '~';
 
 export class Fleet extends EventEmitter {
-  constructor({ localTokens, environments = [], log = () => {} }) {
+  constructor({ localTokens, environments = [], log = () => {}, desktopConnections = false }) {
     super();
     this.log = log;
     this.envs = [];
@@ -31,6 +32,18 @@ export class Fleet extends EventEmitter {
       env.tokens = remoteTokenProvider(e, { log, label: 'WoW bridge' });
       env.client = new T3Client({ tokenProvider: env.tokens, originProvider: remoteOriginProvider(e), log, label: e.label });
       this.envs.push(env);
+    }
+    try {
+      for (const target of desktopConnections ? desktopTargets() : []) {
+        if (this.envs.some((env) => env.id === target.environmentId)) continue;
+        const connection = new DesktopConnect(target);
+        const env = { code: `connect-${target.environmentId}`, id: target.environmentId, label: target.label, local: false };
+        env.tokens = { invalidate() { connection.session = null; } };
+        env.client = new T3Client({ connection, label: env.label, log });
+        this.envs.push(env);
+      }
+    } catch (error) {
+      log(`Desktop connections: ${error.message}`);
     }
     for (const env of this.envs) this.wire(env);
   }
