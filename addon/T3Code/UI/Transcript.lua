@@ -49,6 +49,13 @@ end
 ---------------------------------------------------------------------------
 -- Element initializers
 
+-- A reply's speaker turns red while that reply is read aloud, and a click on it then
+-- stops the reading.
+local function ShowSpeak(button, m)
+	button.reading = ns.Reading(ns.ReadingKey(ns.viewId, m.n))
+	button.Icon:SetVertexColor(1, button.reading and 0.3 or 1, button.reading and 0.3 or 1)
+end
+
 local function InitMessage(frame, ed)
 	if not frame.Body then
 		frame.Label = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
@@ -62,7 +69,7 @@ local function InitMessage(frame, ed)
 		frame.Speak.Background:Hide()
 		frame.Speak:SetPoint("TOPRIGHT", -6, -4)
 		frame.Speak:SetAlpha(0.8)
-		UI.Tooltip(frame.Speak, "Read aloud")
+		UI.Tooltip(frame.Speak, function(self) return self.reading and "Stop reading aloud" or "Read aloud" end)
 		frame.Time = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
 		frame.Time:SetPoint("RIGHT", frame.Speak, "LEFT", -6, 0)
 	end
@@ -90,7 +97,10 @@ local function InitMessage(frame, ed)
 	end
 	frame.Time:SetText(m.at and date("%H:%M", m.at) or "")
 	frame.Speak:SetShown(m.r == "a")
-	frame.Speak:SetScript("OnClick", function() ns.Speak(m.t, ns.viewId, m.n) end)
+	frame.Speak:SetScript("OnClick", function()
+		if ns.Reading(ns.ReadingKey(ns.viewId, m.n)) then ns.Hush() else ns.Speak(m.t, ns.viewId, m.n) end
+	end)
+	ShowSpeak(frame.Speak, m)
 end
 
 local function InitNote(frame, ed)
@@ -428,6 +438,13 @@ function T:Reflow()
 	local atBottom = not self.scrollBox:HasScrollableExtent() or self.scrollBox:GetScrollPercentage() > 0.97
 	self.scrollBox:SetDataProvider(self.dp, ScrollBoxConstants.RetainScrollPosition)
 	if atBottom then self.scrollBox:ScrollToEnd(ScrollBoxConstants.NoScrollInterpolation) end
+end
+
+function T:ShowReading()
+	if not self.scrollBox then return end
+	self.scrollBox:ForEachFrame(function(frame, ed)
+		if ed.kind == "msg" and frame.Speak then ShowSpeak(frame.Speak, ed.msg) end
+	end)
 end
 
 function T:Refresh(force)

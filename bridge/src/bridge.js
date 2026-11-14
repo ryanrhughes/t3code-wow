@@ -50,6 +50,7 @@ const PARTS = [
 ];
 
 const ACTIVE = new Set(['working', 'input', 'plan']);
+const SPEECH_VERBS = new Set(['speak', 'say', 'hush']);
 const ORDER = { input: 0, plan: 1, working: 2, waiting: 3, failed: 4, open: 5, snoozed: 6, settled: 7 };
 // Busy, from the player's point of view: the agent isn't done with the thread yet.
 const BUSY = new Set(['working', 'waiting']);
@@ -322,7 +323,7 @@ export class Bridge {
     this.tokens = tokenProvider({ log: this.log });
     // Every T3 Code machine we show: this one, plus any added with `t3code-wow env add`.
     this.t3 = new Fleet({ localTokens: this.tokens, environments: config.environments || [], log: this.log });
-    this.voice = new Voice({ ttsCommand: config.tts?.command || null, rate: config.tts?.rate || 0, log: this.log });
+    this.voice = new Voice({ ttsCommand: config.tts?.command || null, rate: config.tts?.rate || 0, log: this.log, onSpeaking: () => this.onSpeaking() });
     this.stateDir = stateDir;
     this.stateFile = path.join(stateDir, 'state.json');
     this.statusFile = path.join(stateDir, 'status.json');
@@ -500,6 +501,10 @@ export class Bridge {
     if (!c || c.ui !== hello.ui || c.session !== hello.session) {
       this.log(`addon connected (ui ${hello.ui}, slot ${hello.slot}, signal ${hello.sig}, addon ${hello.version})`);
       c = this.client = { session: hello.session, ui: hello.ui, ackedSeq: -1, flags: '', view: '', hashes: {} };
+      // The commands it sent before reached this bridge or one that has stopped since,
+      // so as far as speech goes they are over. Without this, a speaker left red by a
+      // bridge that restarted while reading would wait for a command that never runs.
+      c.speechCmd = this.persist.handled[hello.session];
       c.slotNext = hello.slot;
       this.persist.sigCounter = Math.max(this.persist.sigCounter, hello.sig);
       this.markDirty('important');
@@ -570,6 +575,9 @@ export class Bridge {
   async runCommand(cmd) {
     const [a0, a1, a2] = cmd.args;
     this.log(`command ${cmd.id}: ${cmd.verb} ${cmd.verb === 'send' || cmd.verb === 'new' ? a0 : cmd.args.join(' ').slice(0, 80)}`);
+    // Commands run side by side, and `speak` waits for the reply's text: a stop or another
+    // read that arrives meanwhile is the player's latest word, so that text isn't read.
+    if (SPEECH_VERBS.has(cmd.verb)) this.latestSpeech = cmd;
     let ok = true;
     let msg = null;
     try {
@@ -666,9 +674,10 @@ export class Bridge {
         }
         case 'speak': {
           const text = await this.speechFor(a0, a1);
+          ok = null;
+          if (this.latestSpeech !== cmd) break;
           if (!text) throw new Error('nothing to read');
           if (!this.voice.speak(text)) throw new Error('no text-to-speech engine on this system');
-          ok = null;
           break;
         }
         case 'say':
@@ -694,9 +703,20 @@ export class Bridge {
       msg = friendlyError(err.message);
       this.log(`command ${cmd.id} failed: ${err.message}`);
     }
+    // Until a snapshot says it acted on the addon's latest speech command, the
+    // addon's speaker button goes by what the player clicked, not by `speech`.
+    if (SPEECH_VERBS.has(cmd.verb) && this.client) this.client.speechCmd = Math.max(this.client.speechCmd || 0, cmd.id);
     if (ok !== null) this.results.push({ id: cmd.id, ok, msg: msg ? escapeWow(msg) : undefined });
     if (this.results.length > 12) this.results.splice(0, this.results.length - 12);
     this.markDirty('important');
+  }
+
+  // A reading's start goes out with the update for the command that started it. Its
+  // end only matters to the speaker button in the window, so it goes out like a
+  // status change while the window is open. Otherwise nothing is sent for it: each
+  // update is built when it goes, so the next one says the reading ended.
+  onSpeaking() {
+    if (!this.stopped && this.client?.flags.includes('o')) this.markDirty('important');
   }
 
   // Dictation state travels to the addon in the snapshot (`dict`): listening,
@@ -1014,6 +1034,9 @@ export class Bridge {
       fam,
       usage,
       dict: this.dictation,
+      // Always sent, even with nothing to say: an addon whose bridge doesn't send it
+      // can't tell when a reading ends, so it doesn't show one.
+      speech: { on: this.voice.speaking || undefined, cmd: this.client?.speechCmd },
       newShots: this.shots.get('new')?.length || undefined,
       // ~100 models is several KB, so only when the addon doesn't hold this list yet.
       models: models && this.client?.modelsHash !== models.h ? models : undefined,

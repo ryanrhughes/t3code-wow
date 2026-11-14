@@ -29,6 +29,7 @@ local GETTERS = {
 	HasScrollableExtent = function() return false end,
 	IsEnabled = function(self) return self._enabled ~= false end,
 	GetAtlas = function(self) return self._atlas end,
+	GetVertexColor = function(self) local c = self._vertex or {} return c[1] or 1, c[2] or 1, c[3] or 1, c[4] or 1 end,
 	GetPoint = function() return "CENTER", nil, "CENTER", 0, 0 end,
 	GetEditBox = function(self)
 		self._eb = self._eb or Stub.NewFrame("EditBox")
@@ -86,6 +87,7 @@ local SETTERS = {
 	SetPoint = function(self, point, rel, ...) self._points = self._points or {} table.insert(self._points, { point, rel, ... }) end,
 	ClearAllPoints = function(self) self._points = {} end,
 	SetColorTexture = function(self, r, g, b) self._color = { r, g, b } end,
+	SetVertexColor = function(self, r, g, b, a) self._vertex = { r, g, b, a } end,
 	SetScript = function(self, name, fn) self._scripts[name] = fn end,
 	HookScript = function(self, name, fn)
 		local old = self._scripts[name]

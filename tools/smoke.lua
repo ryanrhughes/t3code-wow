@@ -349,6 +349,119 @@ data.gen = data.gen + 1
 ns.Transport:Apply({ gen = data.gen, results = { { id = ns.Main.dictCmd, ok = false, msg = "no microphone" } }, threads = data.threads, projects = data.projects, bridge = data.bridge, usage = data.usage, ack = { ui = ns.ui, seq = ns.Transport.stripSeq } })
 check(not ns.Main.dictating, "a refused dictate command puts the mic back")
 
+-- Read aloud: while something is being read, a speaker stops it instead of starting
+-- over, and goes back by itself when the reading ends.
+do
+	local f = ns.Main.frame
+	ns.Main:Open()
+	ns.Main.mode = "thread"
+	ns.Main:SelectThread(data.view.id)
+	local function update(speech)
+		data.gen = data.gen + 1
+		data.speech = speech
+		ns.Transport:Apply(data)
+	end
+	local function red(button)
+		local _, g = button.Icon:GetVertexColor()
+		return g < 1
+	end
+	local function replies()
+		local list = {}
+		for _, r in ipairs(ns.Transcript.scrollBox._rows or {}) do
+			if r.ed.kind == "msg" and r.ed.msg.r == "a" then table.insert(list, r) end
+		end
+		return list
+	end
+	data.bridge.tts = "spd-say"
+	ns.db.settings.tts = "system"
+	update({})
+	check(not ns.Reading() and not red(f.Bar.Speak), "nothing is read aloud to begin with")
+
+	f.Bar.Speak:Click()
+	local speak = ns.db.cmdId
+	check(ns.Transport:Payload():find("\031speak\031" .. ns.viewId, 1, true) ~= nil, "the speaker asks the bridge to read the latest reply")
+	check(ns.Reading() and red(f.Bar.Speak), "and turns red at once")
+	check(ns.Main:StatusLine():find("reading aloud", 1, true) ~= nil, "the status line says something is being read")
+	update({})
+	check(ns.Reading(), "an update built before the bridge acted on the click leaves it red")
+	update({ on = true, cmd = speak })
+	f.Bar.Speak:Click()
+	local hush = ns.db.cmdId
+	check(hush == speak + 1 and ns.Transport:Payload():find("\031hush", 1, true) ~= nil, "a second click stops the reading instead of starting it over")
+	check(not ns.Reading() and not red(f.Bar.Speak), "and the speaker is back at once")
+	update({ on = true, cmd = speak })
+	check(not ns.Reading(), "an update built before the stop doesn't bring it back")
+
+	local list = replies()
+	check(#list >= 2, "replies in the transcript have speakers: " .. #list)
+	list[#list].frame.Speak:Click()
+	local mine = ns.db.cmdId
+	list = replies()
+	check(red(list[#list].frame.Speak) and red(f.Bar.Speak) and not red(list[1].frame.Speak), "a reply's speaker turns red with the bar's, and the other replies' don't")
+	update({ on = true, cmd = mine })
+	update({ cmd = mine })
+	list = replies()
+	check(not ns.Reading() and not red(list[#list].frame.Speak) and not red(f.Bar.Speak), "when the bridge says the reading ended, every speaker goes back by itself")
+	list[1].frame.Speak:Click()
+	update({ cmd = ns.db.cmdId })
+	check(not ns.Reading(), "a reading the bridge refused clears too")
+	update({ on = true, cmd = ns.db.cmdId })
+	check(ns.Reading() and red(f.Bar.Speak), "a reply the bridge reads by itself turns the bar's speaker red, so it can be stopped")
+	f.Bar.Speak:Click()
+	check(not ns.Reading() and ns.Transport:Payload():find("\031hush", 1, true) ~= nil, "and the speaker stops it")
+
+	-- A bridge restarted during a reading has stopped it. Until it hears the window, its
+	-- updates acknowledge nothing: once a click has gone, they say all there is about it.
+	f.Bar.Speak:Click()
+	update({ on = true, cmd = ns.db.cmdId })
+	local ack = data.ack
+	data.ack = nil
+	update({})
+	check(ns.Reading(), "an update from a bridge the click hasn't reached yet leaves it red")
+	ns.Transport:Acknowledge(ns.Transport.stripSeq)
+	update({})
+	check(not ns.Reading() and not red(f.Bar.Speak), "once the click has gone, an update from a bridge that hasn't heard the window since clears it")
+	data.ack = ack
+
+	-- A bridge that doesn't send `speech` can't say when a reading ends, so the speaker
+	-- reads as it did before it could stop a reading, and never turns red. That includes
+	-- a reading shown before such a bridge took over.
+	f.Bar.Speak:Click()
+	update({ on = true, cmd = ns.db.cmdId })
+	update(nil)
+	check(not ns.Reading() and not red(f.Bar.Speak), "a bridge that stops saying when it reads takes the red away")
+	ns.Transport:Acknowledge(ns.Transport.stripSeq)
+	f.Bar.Speak:Click()
+	check(ns.Transport:Payload():find("\031speak\031", 1, true) ~= nil and not ns.Reading() and not red(f.Bar.Speak), "with a bridge that doesn't report speech, the speaker reads without turning red")
+	check(ns.Main:StatusLine():find("reading aloud", 1, true) == nil, "and the status line doesn't say it's reading")
+	ns.Transport:Acknowledge(ns.Transport.stripSeq)
+
+	local said, stopped = 0, 0
+	C_VoiceChat.GetTtsVoices = function() return { { voiceID = 1, name = "Stub voice" } } end
+	C_VoiceChat.SpeakText = function() said = said + 1 end
+	C_VoiceChat.StopSpeakingText = function() stopped = stopped + 1 end
+	ns.db.settings.tts = "game"
+	local sent = ns.db.cmdId
+	f.Bar.Speak:Click()
+	check(said == 1 and ns.Reading() and red(f.Bar.Speak) and ns.db.cmdId == sent, "with the game's voice, the speaker reads in game and turns red")
+	update({ cmd = sent })
+	check(ns.Reading(), "the bridge's updates leave the game's voice alone")
+	Stub.Fire("VOICE_CHAT_TTS_PLAYBACK_FINISHED", 1)
+	check(not ns.Reading() and not red(f.Bar.Speak), "the game says when its voice is done, and the speaker goes back")
+	f.Bar.Speak:Click()
+	local before = stopped
+	f.Bar.Speak:Click()
+	check(said == 2 and stopped == before + 1 and not ns.Reading(), "a second click stops the game's voice")
+	f.Bar.Speak:Click()
+	Stub.Fire("VOICE_CHAT_TTS_PLAYBACK_FAILED", 2, 13)
+	check(not ns.Reading(), "so does a reading the game couldn't play")
+	C_VoiceChat.GetTtsVoices = function() return {} end
+	C_VoiceChat.SpeakText = function() end
+	C_VoiceChat.StopSpeakingText = function() end
+	ns.db.settings.tts = "auto"
+	data.speech = {}
+end
+
 -- Plan, approval details, run summary, queued note
 data.gen = data.gen + 1
 for _, th in ipairs(data.threads) do if th.id == ns.viewId then th.s = "plan" end end
@@ -685,6 +798,32 @@ down(f, "PAD4")
 check(ns.Main.dictating, "Y starts dictation")
 f._scripts.OnGamePadButtonUp(f, "PAD4")
 check(not ns.Main.dictating, "Y release stops dictation")
+-- X reads aloud like a speaker: on a thread that isn't open, that thread's latest
+-- reply, and a second press stops it. The hint says what X does where the cursor is.
+do
+	local open, other
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows) do
+		if r.ed.thread and r.ed.thread.id == ns.viewId then open = open or r
+		elseif r.ed.thread then other = other or r end
+	end
+	local function hint(words) return (f.Pages.threads.Right.Hint:GetText() or ""):find(words, 1, true) ~= nil end
+	local otherKey = ns.ReadingKey(other.ed.thread.id, "last")
+	ns.Gamepad:Highlight(other.frame)
+	down(f, "PAD3")
+	check(ns.Reading(otherKey), "X on another thread reads its latest reply")
+	check(hint("stop reading"), "the controller hint says X now stops it")
+	down(f, "PAD3")
+	check(not ns.Reading(), "X again stops it")
+	ns.Gamepad:Highlight(open.frame)
+	down(f, "PAD3")
+	check(ns.Reading() and not ns.Reading(otherKey) and hint("stop reading"), "X on the open thread reads it as the speaker does, and the hint says X stops it")
+	ns.Gamepad:Highlight(other.frame)
+	check(hint("read aloud") and not hint("stop reading"), "on a thread that isn't being read, the hint says X reads it")
+	down(f, "PAD3")
+	check(ns.Reading(otherKey), "and X reads that one instead")
+	down(f, "PAD3")
+	check(not ns.Reading(), "and X again stops it")
+end
 -- A on a thread row opens it
 for _, r in ipairs(ns.ThreadList.scrollBox._rows) do
 	if r.ed.thread then ns.Gamepad:Highlight(r.frame) break end

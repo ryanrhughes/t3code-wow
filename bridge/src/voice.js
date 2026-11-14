@@ -31,12 +31,21 @@ export function which(bin) {
 }
 
 export class Voice {
-  constructor({ ttsCommand = null, rate = 0, log = () => {} } = {}) {
+  constructor({ ttsCommand = null, rate = 0, log = () => {}, onSpeaking = () => {} } = {}) {
     this.ttsCommand = ttsCommand; // e.g. "piper-say" or "my-tts --stdin"; text arrives on stdin
     this.rate = rate;
     this.log = log;
+    this.onSpeaking = onSpeaking; // called with true or false each time `speaking` changes
     this.current = null;
     this.dictating = false;
+  }
+
+  /**
+   * Whether something is being read aloud: the program reading it is still running.
+   * A tts.command that returns before it has finished speaking counts as done then.
+   */
+  get speaking() {
+    return this.current !== null;
   }
 
   ttsEngine() {
@@ -71,6 +80,14 @@ export class Voice {
   }
 
   hush() {
+    const was = this.speaking;
+    this.silence();
+    if (was) this.onSpeaking(false);
+  }
+
+  // Stops whatever is being read without reporting it: speak() reports once, after
+  // the next reading has started.
+  silence() {
     if (this.current) {
       try {
         this.current.kill('SIGTERM');
@@ -89,7 +106,8 @@ export class Voice {
       this.log('speak: no text-to-speech engine found (install speech-dispatcher or espeak-ng, or set tts.command)');
       return false;
     }
-    this.hush();
+    const was = this.speaking;
+    this.silence();
     let child;
     if (engine.kind === 'custom') {
       child = spawn(engine.cmd, { shell: true, stdio: ['pipe', 'ignore', 'ignore'] });
@@ -111,11 +129,18 @@ export class Voice {
       child = spawn(engine.cmd, args, { stdio: ['pipe', 'ignore', 'ignore'] });
       child.stdin.end(text);
     }
-    child.on('error', (err) => this.log(`speak: ${err.message}`));
-    child.on('exit', () => {
-      if (this.current === child) this.current = null;
+    const done = () => {
+      if (this.current !== child) return;
+      this.current = null;
+      this.onSpeaking(false);
+    };
+    child.on('error', (err) => {
+      this.log(`speak: ${err.message}`);
+      done();
     });
+    child.on('exit', done);
     this.current = child;
+    if (!was) this.onSpeaking(true);
     return true;
   }
 

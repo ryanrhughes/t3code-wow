@@ -297,6 +297,10 @@ function M:CreateButtonBar(f)
 	end)
 
 	bar.Speak = UI.IconButton(f, "voicechat-icon-speaker", 26, "Read aloud", function()
+		if ns.Reading() then
+			ns.Hush()
+			return
+		end
 		local v = ns.Store:View()
 		local last
 		if v and v.msgs then
@@ -315,7 +319,9 @@ function M:CreateButtonBar(f)
 		if button == "RightButton" then M:RemoveScreenshots() else M:AttachScreenshot() end
 	end)
 	UI.Tooltip(bar.Shot, "Attach a screenshot", "Adds a screenshot of the game to your next message. Right-click to remove it. /t3 report also adds diagnostics.")
-	UI.Tooltip(bar.Speak, nil, "Read the latest reply aloud.")
+	UI.Tooltip(bar.Speak, nil, function()
+		return ns.Reading() and "Stop reading aloud." or "Read the latest reply aloud."
+	end)
 
 	-- The "/" and "$" suggestions as a list, for a controller, which can't type them.
 	-- It opens the shared list, so it carries what the list reads from its owner.
@@ -690,6 +696,14 @@ function M:ShotHint()
 	end
 end
 
+-- The line under the message box: the screenshots attached, else on a thread what the
+-- controller's buttons do.
+function M:ShowHint()
+	local hint = self:ShotHint()
+	if not hint and self.mode ~= "new" and ns.Gamepad and ns.Gamepad:IsActive() then hint = ns.Gamepad:HintText() end
+	self.frame.Pages.threads.Right.Hint:SetText(hint or "")
+end
+
 function M:AttachScreenshot()
 	local key = self:ShotKey()
 	if not key then
@@ -794,6 +808,8 @@ function M:StatusLine()
 		text = text .. ns.Color("orange", "  ·  listening… release to finish")
 	elseif self.dictState == "transcribing" then
 		text = text .. ns.Color("orange", "  ·  transcribing…")
+	elseif ns.Reading() then
+		text = text .. ns.Color("orange", "  ·  reading aloud…")
 	end
 	return text
 end
@@ -871,7 +887,7 @@ function M:Refresh()
 		header.Text:SetPoint("RIGHT", header.Project, "LEFT", -8, 0)
 		header.Text:SetJustifyH("RIGHT")
 		self:SetPlaceholder("Describe what the agent should do  (Shift+Enter for a new line)")
-		right.Hint:SetText(self:ShotHint() or "")
+		self:ShowHint()
 		f.Bar.Send:SetText("Start")
 	else
 		header.Text:ClearAllPoints()
@@ -933,7 +949,7 @@ function M:Refresh()
 			header.Model:Hide()
 			header.Effort:Hide()
 		end
-		right.Hint:SetText(self:ShotHint() or (ns.Gamepad and ns.Gamepad:IsActive() and ns.Gamepad:HintText()) or "")
+		self:ShowHint()
 	end
 	f.Bar.Stop:SetEnabled(t ~= nil and (t.s == "working" or t.run) and self.mode ~= "new")
 	local fam = self.mode ~= "new" and ns.Store:Family()
@@ -944,6 +960,8 @@ function M:Refresh()
 	f.Bar.Mic:SetEnabled(canDictate)
 	f.Bar.Mic.Icon:SetDesaturated(not canDictate)
 	f.Bar.Mic.Icon:SetVertexColor(self.dictating and 1 or 1, self.dictating and 0.3 or 1, self.dictating and 0.3 or 1)
+	local reading = ns.Reading()
+	f.Bar.Speak.Icon:SetVertexColor(1, reading and 0.3 or 1, reading and 0.3 or 1)
 	f.Bar.Back:SetEnabled(self.mode == "new" or ns.viewId ~= nil or not f.Pages.threads.Left:IsShown())
 	local commands = ns.Store:Commands(self:NextProvider())
 	f.Bar.Insert:SetEnabled(commands ~= nil)
@@ -953,6 +971,7 @@ function M:Refresh()
 	ns.ThreadList:Refresh()
 	ns.Family:Refresh()
 	ns.Transcript:Refresh()
+	ns.Transcript:ShowReading()
 end
 
 ---------------------------------------------------------------------------
@@ -1183,6 +1202,9 @@ ns:On("DataChanged", function()
 end)
 
 ns:On("DataChanged", function()
+	if M.frame and M.frame:IsShown() then M:Refresh() end
+end)
+ns:On("ReadingChanged", function()
 	if M.frame and M.frame:IsShown() then M:Refresh() end
 end)
 ns:On("LinkChanged", function()

@@ -679,6 +679,81 @@ test('read-aloud waits while the player is in combat', () => {
   b.stop();
 });
 
+test('the snapshot says whether the desktop voice is reading, and the last speech command the bridge acted on', async (t) => {
+  const { b } = fakeBridge();
+  delete b.voice.speak;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 't3wow-voice-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'slow.cjs'), "process.stdin.resume().on('end', () => setTimeout(() => {}, 300));");
+  b.voice.ttsCommand = `"${process.execPath}" "${path.join(dir, 'slow.cjs')}"`;
+  const hello = ['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', '', '0.1.0'];
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: undefined }, 'sent before the addon is heard, so it knows this bridge says when its voice reads');
+  b.onFrame(frame(1, [hello]));
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: undefined }, 'nothing said yet');
+  b.onFrame(frame(2, [hello, ['C', 1, 'say', 'Hello there']]));
+  await settle();
+  assert.deepEqual(b.buildSnapshot().speech, { on: true, cmd: 1 });
+  b.onFrame(frame(3, [hello, ['C', 2, 'hush']]));
+  await settle();
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: 2 });
+  b.onFrame(frame(4, [hello, ['C', 3, 'say', 'Again']]));
+  await settle();
+  b.dirty = { important: false, minor: false, view: false };
+  await new Promise((resolve) => b.voice.current.once('exit', resolve));
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: 3 }, 'done when the voice finishes');
+  assert.ok(b.dirty.important, 'with the window open, the end goes out like a status change');
+  b.onFrame(frame(5, [hello, ['C', 4, 'speak', 't1', 'last']]));
+  await settle();
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: 4 }, 'a reading refused for having nothing to read is acted on too');
+  b.stop();
+});
+
+test("a bridge restarted during a reading says the addon's speech commands before it are over, so its speaker goes back", (t) => {
+  const { b } = fakeBridge();
+  t.after(() => b.stop());
+  b.persist.handled = { sess: 7 };
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', '', '0.1.0']]));
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: 7 });
+});
+
+test("a stop or another read while a reply's text is still being fetched means that reply is never read", async (t) => {
+  const { b } = fakeBridge();
+  t.after(() => b.stop());
+  const spoken = [];
+  const lookups = [];
+  b.voice.speak = (text) => (spoken.push(text), true);
+  b.voice.hush = () => spoken.push('(hush)');
+  b.speechFor = (thread, which) => new Promise((resolve) => lookups.push(() => resolve(`${thread} ${which}`)));
+  const hello = ['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', '', '0.1.0'];
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  b.onFrame(frame(1, [hello, ['C', 1, 'speak', 't1', 'last'], ['C', 2, 'hush']]));
+  await settle();
+  lookups[0]();
+  await settle();
+  assert.deepEqual(spoken, ['(hush)'], 'the stop came after the read, so nothing is read');
+  assert.equal(b.buildSnapshot().speech.cmd, 2);
+  b.onFrame(frame(2, [hello, ['C', 3, 'speak', 't1', '1'], ['C', 4, 'speak', 't1', '2']]));
+  await settle();
+  lookups[2]();
+  lookups[1]();
+  await settle();
+  assert.deepEqual(spoken, ['(hush)', 't1 2'], 'only the later of two reads');
+  assert.equal(b.buildSnapshot().speech.cmd, 4);
+});
+
+test('with the window closed, the end of a reading waits for the next update instead of sending one', (t) => {
+  const { b } = fakeBridge();
+  t.after(() => b.stop());
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 1, 1, 0, '', '', '0.1.0']]));
+  assert.ok(b.publishNow());
+  clearTimeout(b.publishTimer);
+  b.publishTimer = null;
+  b.voice.onSpeaking(false);
+  assert.deepEqual(b.dirty, { important: false, minor: false, view: false });
+  assert.equal(b.publishTimer, null, 'no update is due for it');
+});
+
 test('missing dictation explains itself in platform terms', () => {
   const { b } = fakeBridge();
   b.voice.canOmarchyDictate = () => false;
