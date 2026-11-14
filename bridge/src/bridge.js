@@ -1225,7 +1225,10 @@ export class Bridge {
     if (this.proc && !c?.flags.includes('s')) {
       for (let k = counter; k <= sig; k++) toRaise.push(k);
       // Waiting on an earlier bell (we restarted, say)? Bells are reusable: ring it too.
-      if (c?.pollSig && c.pollSig < counter) toRaise.push(c.pollSig);
+      // Only within the four bells it listens to: four or more behind, ringing it would
+      // empty this update's bell, which shares a file with the one four before it, and
+      // the bells already rung for it are among those it listens to.
+      if (c?.pollSig && c.pollSig < counter && counter - c.pollSig < 4) toRaise.push(c.pollSig);
     }
     const raise = toRaise.length > 0;
     // Slots: write the snapshot to every slot from the addon's last confirmed position

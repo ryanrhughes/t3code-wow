@@ -330,16 +330,29 @@ test('a reload (new ui token) resets the slot pointer; stale beacons do not', ()
   b.stop();
 });
 
-test('an addon waiting on a stale signal gets that signal raised too', needsLua, () => {
+test('an addon waiting on a stale signal gets that signal raised too, while it is fewer than four behind', needsLua, () => {
   const { b, dir } = fakeBridge();
-  b.persist.sigCounter = 9;
+  b.persist.sigCounter = 6;
   b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 2, 4, 0, 'o', '', '0.1.0']]));
-  b.persist.sigCounter = 9; // e.g. restored from a restarted bridge
+  b.persist.sigCounter = 6; // e.g. restored from a restarted bridge
   b.client.slotNext = 2;
   b.publishNow('test');
   assert.ok(rung(dir, 4) > 0, 'bell the addon listens for is rung');
+  assert.ok(rung(dir, 6) > 0);
+  assert.equal(loadSlot(dir, 2).nextSig, 7);
+  b.stop();
+});
+
+test('an addon four or more behind is not rung its old bell, which would ring inside the bells it listens to next', needsLua, () => {
+  const { b, dir } = fakeBridge();
+  b.persist.sigCounter = 9;
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 2, 4, 0, 'o', '', '0.1.0']]));
+  b.persist.sigCounter = 9;
+  b.client.slotNext = 2;
+  b.publishNow('test');
   assert.ok(rung(dir, 9) > 0);
   assert.equal(loadSlot(dir, 2).nextSig, 10);
+  for (let k = 10; k <= 13; k++) assert.equal(rung(dir, k), 0, `bell ${k} is quiet for the addon that loads this update`);
   b.stop();
 });
 
@@ -353,6 +366,18 @@ test('signals are never skipped, and never rung ahead of our counter', () => {
   for (const k of [6, 7, 8]) assert.equal(rung(dir, k), 0, `bell ${k} not rung ahead`);
   assert.equal(b.persist.sigCounter, 6);
   b.stop();
+});
+
+test('an addon that stays quiet through many updates hears every one, and nothing ahead of it', (t) => {
+  const { b, dir } = fakeBridge();
+  t.after(() => b.stop());
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 2, 1, 0, '', '', '0.1.0']]));
+  for (let k = 1; k <= 10; k++) {
+    b.publishNow('test');
+    assert.ok(rung(dir, k) > 0, `update ${k} rings bell ${k}`);
+    // Having loaded update k, the addon listens for bells k+1 to k+4.
+    for (let ahead = k + 1; ahead <= k + 4; ahead++) assert.equal(rung(dir, ahead), 0, `bell ${ahead} is quiet after update ${k}`);
+  }
 });
 
 test('a drifted slot prediction still covers the slot the addon will load', needsLua, () => {
