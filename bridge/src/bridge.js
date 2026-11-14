@@ -1223,9 +1223,13 @@ export class Bridge {
     let sig = counter;
     // An addon that reports its sound signals don't work (flag "s") isn't listening.
     if (this.proc && !c?.flags.includes('s')) {
-      for (let k = counter; k <= sig; k++) toRaise.push(k);
       // Waiting on an earlier bell (we restarted, say)? Bells are reusable: ring it too.
-      if (c?.pollSig && c.pollSig < counter) toRaise.push(c.pollSig);
+      // Only within the four bells it listens to: four or more behind, ringing it would
+      // empty this update's bell, which shares a file with the one four before it, and
+      // the bells already rung for it are among those it listens to. It goes first, so
+      // a ring that stops partway leaves rung only bells the update may name.
+      if (c?.pollSig && c.pollSig < counter && counter - c.pollSig < 4) toRaise.push(c.pollSig);
+      for (let k = counter; k <= sig; k++) toRaise.push(k);
     }
     const raise = toRaise.length > 0;
     // Slots: write the snapshot to every slot from the addon's last confirmed position
@@ -1247,7 +1251,6 @@ export class Bridge {
       v: 1,
       gen,
       now: Math.floor(Date.now() / 1000),
-      nextSig: raise ? sig + 1 : counter,
       ack: c ? { ui: c.ui, seq: c.seq } : undefined,
       key: this.stripKeys.hex,
     };
@@ -1259,14 +1262,46 @@ export class Bridge {
     const bootstrap = [...targets].filter((i) => i <= 3);
     const rotating = [...targets].filter((i) => i > 3);
     let bytes = 0;
-    try {
-      bytes = this.bank.write(bootstrap, { ...content, ...snapshot });
+    const write = (nextSig) => {
+      // This update carries a part the addon didn't say it had. Whether it applied it is
+      // unknown until it speaks again, so don't leave that part out on a guess: if it
+      // moves back to content the addon last reported, it must be sent, not assumed.
+      for (const { field, letter } of PARTS) {
+        if (c?.hashes?.[field] && snapshot.x[letter] !== c.hashes[field]) c.hashes[field] = null;
+      }
+      bytes = this.bank.write(bootstrap, { ...content, nextSig, ...snapshot });
       if (rotating.length) {
         const slim = Bridge.slimSnapshot(snapshot, c?.hashes);
-        bytes = Math.max(bytes, this.bank.write(rotating, { ...content, ...slim }));
+        bytes = Math.max(bytes, this.bank.write(rotating, { ...content, nextSig, ...slim }));
       }
+    };
+    try {
+      // An update names the bell after the one it rings, and the addon listens to four
+      // from there. The fourth shares its file with the bell four before the ring, so
+      // that one is emptied before any update names the next. An addon that fell behind
+      // and still plays it can hold its file open: the update then names the bell still
+      // owed, which moves such an addon off the old one, and goes out again.
+      let held = null;
       if (raise) {
-        for (const k of toRaise) this.bank.raise(k);
+        try {
+          for (const k of toRaise) this.bank.free(k);
+        } catch (err) {
+          if (!(err instanceof FileInUse)) throw err;
+          held = err;
+        }
+      }
+      write(raise && !held ? sig + 1 : counter);
+      if (held) throw held;
+      if (raise) {
+        try {
+          for (const k of toRaise) this.bank.raise(k);
+        } catch (err) {
+          // A bell that didn't ring is named again as the one still owed, and the update
+          // goes out again. An addon that loaded it in between listens past that bell,
+          // and hears the update after this one.
+          if (err instanceof FileInUse) write(counter);
+          throw err;
+        }
         this.persist.sigCounter = Math.max(counter, sig + 1);
         if (c) c.slotNext = predicted + 1;
         this.persist.slotGuess = predicted + 1;
@@ -1296,12 +1331,6 @@ export class Bridge {
       this.failures = null;
       this.log(`publish recovered after ${count} failed ${count === 1 ? 'try' : 'tries'} (${((Date.now() - since) / 1000).toFixed(1)}s)`);
     }
-    // This publish carried a part the addon didn't say it had. Whether it applied it is
-    // unknown until it speaks again, so don't leave that part out on a guess: if it
-    // moves back to content the addon last reported, it must be sent, not assumed.
-    for (const { field, letter } of PARTS) {
-      if (c?.hashes?.[field] && snapshot.x[letter] !== c.hashes[field]) c.hashes[field] = null;
-    }
     for (const r of this.results) r.sent = true;
     this.lastGen = gen;
     this.persist.gen = gen;
@@ -1325,7 +1354,8 @@ export class Bridge {
       addon: this.client
         ? { ui: this.client.ui, version: this.client.version, flags: this.client.flags, view: this.client.view, slotNext: this.client.slotNext, lastSeen: this.client.lastSeen, encrypted: !!this.client.encrypted }
         : null,
-      slots: { total: this.bank.slots, remaining: this.remainingSlots() },
+      // Only the addon says where it is, so the count is known once it has.
+      slots: { total: this.bank.slots, remaining: this.client ? this.remainingSlots() : null },
       signals: { next: this.persist.sigCounter },
       rejected: { forged: this.rejected.forged, plainCommands: this.rejected.plainCommands },
       publishes: this.publishCount || 0,

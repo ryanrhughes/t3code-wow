@@ -231,6 +231,12 @@ export class SlotBank {
     return this.sigFile(BELL_BASE + ((((k - 1) % BELLS) + BELLS) % BELLS));
   }
 
+  // Empty the bell four behind k. It shares its file with bell k+4, the last of the
+  // four an addon listens to once an update has sent it past bell k.
+  free(k) {
+    setBell(this.bellFile(k - 4), false);
+  }
+
   // Empty the bell four behind k, then fill bell k, so the addon's look-ahead window
   // (k .. k+3) only ever sees bells raised after it last loaded.
   raise(k) {

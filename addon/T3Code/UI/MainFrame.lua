@@ -772,6 +772,7 @@ local LINK_TEXT = {
 	waiting = { "orange", "Waiting for the bridge… (run t3code-wow install on your desktop)" },
 	stale = { "red", "Bridge not responding — is t3code-wow running?" },
 	t3offline = { "red", "Bridge connected, but T3 Code is offline" },
+	unheard = { "red", "T3 Code can't hear the game. Keep its top-left corner uncovered, and check t3code-wow status on your desktop." },
 	exhausted = { "orange", "Live updates paused — /reload to resume" },
 }
 
@@ -783,7 +784,7 @@ function M:StatusLine()
 	local state = T:BridgeState()
 	local entry = LINK_TEXT[state] or LINK_TEXT.waiting
 	local text = ns.Color(entry[1], entry[2])
-	if #T.queue > 0 then
+	if #T.queue > 0 and state ~= "unheard" then
 		text = text .. ns.Color("grey", "  ·  sending…")
 	end
 	local left = T:SlotsLeft()

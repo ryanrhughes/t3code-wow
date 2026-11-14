@@ -35,6 +35,8 @@ local SIGNAL_POLL = 0.5
 local MIN_LOAD_GAP = 0.6
 local SHOW_FOR = 20 -- seconds a strip stays up without an acknowledgement
 local RETRY_AFTER = { 15, 30, 60, 120 }
+-- Seconds before loading again on our own after loads that brought nothing new.
+local STALE_WAIT = { 3, 6, 12, 24, 48, 96, 120 }
 
 T.stripSeq = 0
 T.ackedSeq = -1
@@ -230,8 +232,23 @@ function T:LoadNextSlot(why)
 		fresh = self:Apply(data, why == "bootstrap")
 		if newKeys then self:Touch() end -- resend (now sealed), including held commands
 	end
+	if fresh then self:Unstale() end
 	if self.stripShown then self:DrawStrip() end
 	return true, fresh
+end
+
+-- A load we started (a bell, or the strip going unanswered) brought nothing new: the
+-- bridge isn't writing where we are, which happens while it can't read the strip. Each
+-- such load waits longer than the last, up to two minutes, so the slots last.
+function T:Stale()
+	self.staleLoads = math.min((self.staleLoads or 0) + 1, #STALE_WAIT)
+	self.ringCooldownUntil = GetTime() + STALE_WAIT[self.staleLoads]
+end
+
+-- Something new arrived, or the player wants something now: try at once again.
+function T:Unstale()
+	self.staleLoads = 0
+	self.ringCooldownUntil = nil
 end
 
 function T:Apply(data, bootstrap)
@@ -271,6 +288,7 @@ end
 
 function T:Touch()
 	self.lastTouchAt = GetTime()
+	self.unansweredSince = self.unansweredSince or GetTime()
 	self.stripSeq = (self.stripSeq + 1) % 65536
 	self.showSince = nil
 	self.hiddenUntil = nil
@@ -281,6 +299,7 @@ end
 function T:Acknowledge(seq)
 	if seq > self.ackedSeq or (self.ackedSeq > 60000 and seq < 1000) then
 		self.ackedSeq = seq
+		self.unansweredSince = GetTime() -- the bridge reads the strip
 	end
 	local remaining, changed = {}, false
 	for _, cmd in ipairs(self.queue) do
@@ -296,6 +315,7 @@ function T:Acknowledge(seq)
 	elseif self.ackedSeq >= self.stripSeq then
 		self:HideStrip()
 	end
+	if self.ackedSeq >= self.stripSeq and #self.queue == 0 then self.unansweredSince = nil end
 end
 
 -- A command that can't fit in a frame next to the hello would never go, and would
@@ -325,6 +345,7 @@ function T:Send(verb, ...)
 	db.cmdId = (db.cmdId or 0) + 1
 	local cmd = { id = db.cmdId, verb = verb, args = { ... }, at = GetTime() }
 	table.insert(self.queue, cmd)
+	self:Unstale()
 	self:Touch()
 	return cmd.id
 end
@@ -452,13 +473,21 @@ end
 ---------------------------------------------------------------------------
 -- Status for the UI
 
+local UNANSWERED = 8 -- seconds the bridge may leave the strip unanswered before we say so
+
 function T:BridgeState()
 	if self.exhausted then return "exhausted" end
 	if not self.lastData then return "waiting" end
 	local age = time() - (self.bridgeNow or 0)
 	local limit = ns.windowOpen and 200 or 900
 	if age > limit then return "stale" end
+	-- With T3 Code offline nothing sent could run anyway, so that is what to say first.
 	if ns.Store.data.bridge and ns.Store.data.bridge.t3 ~= "connected" then return "t3offline" end
+	-- Updates arrive, but what we draw goes unanswered: the bridge can't read the strip.
+	-- It takes an update since the strip went unanswered to show the bridge is running:
+	-- one that just stopped sends none, and goes stale in its own time.
+	local unanswered = self.unansweredSince
+	if unanswered and GetTime() - unanswered > UNANSWERED and (self.lastData or 0) > unanswered then return "unheard" end
 	return "connected"
 end
 
@@ -502,7 +531,10 @@ function T:OnUpdate(elapsed)
 	local now = GetTime()
 	local quiet = now - (self.lastLoadAt or 0)
 	if self.stripShown and self.showSince and now - self.showSince > 4 and quiet > 5 then
-		self:LoadNextSlot("resync")
+		if now >= (self.ringCooldownUntil or 0) then
+			local loaded, fresh = self:LoadNextSlot("resync")
+			if loaded and not fresh then self:Stale() end
+		end
 	elseif ns.windowOpen and quiet > 150 then
 		self:LoadNextSlot("resync")
 	end
@@ -519,13 +551,23 @@ function T:OnUpdate(elapsed)
 					return
 				end
 				self.bellProbe = nil
-				local found
+				local reliable = (probe.waits or 0) < 6
+				local found, heard = nil, probe.sig .. ":"
 				for _, b in ipairs(probe.bells) do
-					if not found and IsPlaying(b.handle) then found = b.k end
+					local playing = IsPlaying(b.handle)
+					if not found and playing then found = b.k end
+					heard = heard .. (playing and "1" or "0")
 					if b.handle then StopSound(b.handle) end
 				end
 				if probe.control then StopSound(probe.control) end
-				if found and (probe.waits or 0) < 6 and GetTime() >= (self.ringCooldownUntil or 0) then
+				-- A ring fills one bell and empties the one four before it, so one of these
+				-- four changes whenever the bridge sends an update. That may be the bridge
+				-- answering, once it can hear us again, so it ends any wait.
+				if reliable then
+					if self.heard and self.heard ~= heard then self.ringCooldownUntil = nil end
+					self.heard = heard
+				end
+				if found and reliable and GetTime() >= (self.ringCooldownUntil or 0) then
 					-- Only a fresh snapshot moves us along: it carries the bridge's next
 					-- bell (Apply sets db.sigNext). A ring that leads to old data was a
 					-- false alarm; moving past it would put us ahead of the bridge, where
@@ -533,7 +575,7 @@ function T:OnUpdate(elapsed)
 					local loaded, fresh = self:LoadNextSlot("signal")
 					if loaded and not fresh then
 						self.falseRings = (self.falseRings or 0) + 1
-						self.ringCooldownUntil = GetTime() + 3
+						self:Stale()
 						self:Touch() -- tell the bridge where we really are
 					end
 				end
@@ -549,7 +591,7 @@ function T:OnUpdate(elapsed)
 					table.insert(bells, { k = k, handle = Ring(BellPath(k)) or nil })
 				end
 				local control = Ring(SIG_FMT:format(CTL_EMPTY)) or nil
-				self.bellProbe = { at = GetTime(), bells = bells, control = control }
+				self.bellProbe = { at = GetTime(), bells = bells, control = control, sig = sig }
 			end
 		end
 	else

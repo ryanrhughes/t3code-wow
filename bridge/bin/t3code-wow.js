@@ -399,7 +399,8 @@ function cmdStatus(args) {
   } else {
     console.log(`${ok(false)} Addon: not heard from yet ${C.d('(log in, then /t3)')}`);
   }
-  console.log(`  Live updates left this session: ${st.slots.remaining}/${st.slots.total} ${C.d(`· ${st.publishes} updates sent · update bell #${st.signals.next}`)}`);
+  const left = st.slots.remaining == null ? `not known until the addon is heard (${st.slots.total} in all)` : `${st.slots.remaining}/${st.slots.total}`;
+  console.log(`  Live updates left this session: ${left} ${C.d(`· ${st.publishes} updates sent · update bell #${st.signals.next}`)}`);
   console.log(`  Speech: ${st.voice.tts || C.y('none')} · Dictation: ${st.voice.dictation || C.y('none')}`);
   if (st.voice.hint) console.log(`    ${C.d(st.voice.hint)}`);
   if (args.log || args.v) {
