@@ -235,7 +235,7 @@ function L:Create(parent)
 		elseif ed.empty then
 			factory("T3CodeEmptyRowTemplate", function(frame)
 				if not frame.Text then
-					frame.Text = frame:CreateFontString(nil, "ARTWORK", "GameFontDisable")
+					frame.Text = frame:CreateFontString(nil, "ARTWORK", ns.UI.Font("GameFontDisable"))
 					frame.Text:SetPoint("LEFT", 18, 0)
 					frame.Text:SetPoint("RIGHT", -8, 0)
 					frame.Text:SetJustifyH("LEFT")
