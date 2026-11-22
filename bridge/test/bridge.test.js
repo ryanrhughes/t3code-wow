@@ -1226,8 +1226,11 @@ test('running subagent threads are listed, idle ones are not', async () => {
   const now = new Date().toISOString();
   b.t3.threads.set('busy-kid', { id: 'busy-kid', title: 'Busy', projectId: 'p1', status: 'running', activityRunStatus: 'running', lineage: { parentThreadId: 't1' }, updatedAt: now });
   b.t3.threads.set('idle-kid', { id: 'idle-kid', title: 'Idle', projectId: 'p1', status: 'completed', lineage: { parentThreadId: 't1' }, updatedAt: now });
-  const ids = b.buildSnapshot().threads.map((t) => t.id);
+  const rows = b.buildSnapshot().threads;
+  const ids = rows.map((t) => t.id);
   assert.ok(ids.includes('busy-kid'), 'a running subagent thread is listed');
+  assert.equal(rows.find((t) => t.id === 'busy-kid').sub, true, 'and marked under a parent so the quest tracker leaves it out');
+  assert.equal(rows.find((t) => t.id === 't1').sub, undefined, 'top-level threads carry no sub flag');
   assert.ok(!ids.includes('idle-kid'), 'an idle one is not');
 });
 
@@ -1282,14 +1285,20 @@ test('a task another machine delegated here is listed and counted like a subagen
   const before = statusCount();
   for (const t of [busy, idle, handoff, stray]) b.t3.threads.set(t.id, t);
   assert.equal(statusCount(), before + 1, 'the status file counts only the handoff');
-  let ids = b.buildSnapshot().threads.map((t) => t.id);
+  let rows = b.buildSnapshot().threads;
+  let ids = rows.map((t) => t.id);
   assert.ok(ids.includes('busy-task'), 'a running delegated task is listed');
+  assert.equal(rows.find((t) => t.id === 'busy-task').sub, true, 'and marked under its known sender');
   assert.ok(!ids.includes('idle-task'), 'an idle one is not');
   assert.ok(ids.includes('handoff'), 'a handoff thread is listed whatever its state');
+  assert.equal(rows.find((t) => t.id === 'handoff').sub, undefined, 'a handoff is a top-level thread');
   assert.ok(ids.includes('stray-task'), 'an idle task from an unknown sender is listed');
+  assert.equal(rows.find((t) => t.id === 'stray-task').sub, undefined, 'a stray delegated task is not under a known parent');
   b.t3.threads.set(sender.id, { ...sender, archivedAt: now });
-  ids = b.buildSnapshot().threads.map((t) => t.id);
+  rows = b.buildSnapshot().threads;
+  ids = rows.map((t) => t.id);
   assert.ok(ids.includes('idle-task'), 'and so is one whose sender was archived');
+  assert.equal(rows.find((t) => t.id === 'idle-task').sub, undefined, 'and no longer marked under a parent');
 
   const { Fleet } = await import('../src/fleet.js');
   const fleet = new Fleet({ localTokens: async () => 'x' });

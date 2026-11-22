@@ -195,7 +195,7 @@ export function proposedPlan(projection) {
   return plan ? plan.markdown : null;
 }
 
-function threadRow(t, s, proj, kids = 0) {
+function threadRow(t, s, proj, kids = 0, sub = false) {
   let label;
   if (s === 'working') label = activityLabel(proj) || (t.status === 'queued' ? 'Queued' : 'Working');
   else if (s === 'input') label = t.pendingRuntimeRequest?.kind === 'user_input' ? 'Needs your answer' : 'Needs your approval';
@@ -229,6 +229,8 @@ function threadRow(t, s, proj, kids = 0) {
     last: last && !running && ACTIVE.has(s) === false && s !== 'settled' && s !== 'snoozed' ? escapeWow(firstLine(last, 160)) : undefined,
     // Still running while it waits (on its subagent, say): the player can stop or steer it.
     run: s === 'waiting' && running ? true : undefined,
+    // Under a parent thread (subagent, side chat, delegated task): left out of the quest tracker while busy.
+    sub: sub || undefined,
   };
 }
 
@@ -965,7 +967,7 @@ export class Bridge {
     threads = threads.filter(({ s }) => s !== 'settled' || ++settled <= 30).slice(0, 90);
     const list = threads.map(({ t, s }) => {
       usedProjects.add(t.projectId);
-      return threadRow(t, s, this.views.get(t.id)?.projection, this.busyKids(t));
+      return threadRow(t, s, this.views.get(t.id)?.projection, this.busyKids(t), this.underParent(t));
     });
     for (const p of t3.projects.values()) {
       if (p.archivedAt) continue;
@@ -1087,7 +1089,7 @@ export class Bridge {
       // detail passed), the unread mark, the last reply, and the update time, for
       // which the end of its last run stands in.
       const s = this.statusOf(t);
-      me = { ...threadRow(t, s, undefined, this.busyKids(t)), un: undefined, last: undefined, u: isRunning(t) ? undefined : sec(t.latestRunCompletedAt || t.createdAt) };
+      me = { ...threadRow(t, s, undefined, this.busyKids(t), this.underParent(t)), un: undefined, last: undefined, u: isRunning(t) ? undefined : sec(t.latestRunCompletedAt || t.createdAt) };
     }
     if (!up && !kids.length && !me) return undefined;  // (a read-only subagent always has `up`)
     const home = t?._env || t3.split(viewId).env;

@@ -358,10 +358,13 @@ function K:Refresh(resetPosition)
 	end
 
 	local entries = {}
-	for _, t in ipairs(ns.Store:Active()) do table.insert(entries, t) end
+	for _, t in ipairs(ns.Store:Active()) do
+		-- Subagents run under their parent; only show one here when it needs the player directly.
+		if not t.sub or t.s == "input" or t.s == "plan" then table.insert(entries, t) end
+	end
 	for _, t in ipairs(ns.Store.data.threads) do
 		if #entries >= MAX_LINES then break end
-		if (t.s == "open" or t.s == "failed") and t.un then table.insert(entries, t) end
+		if not t.sub and (t.s == "open" or t.s == "failed") and t.un then table.insert(entries, t) end
 	end
 	local state = ns.Transport:BridgeState()
 	self.bridgeState = state

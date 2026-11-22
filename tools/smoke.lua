@@ -1665,6 +1665,18 @@ do
 	check(tf.Lines[1]._shown == false and tf:GetHeight() == 22 and tf.Modern.Chevron._texture:find("chevron-right", 1, true), "collapsing the card leaves the band and turns the chevron")
 	ns.db.settings.trackerCollapsed = collapsed
 	ns.Transport.bridgeNow = bridgeNow
+	ns.Store.data.threads = {
+		{ id = "parent", title = "Lead", s = "waiting", l = "Waiting on 1 subagent", st = time() - 20, p = "p" },
+		{ id = "sub-work", title = "Helper", s = "working", l = "Running tests", st = time() - 10, p = "p", sub = true },
+		{ id = "sub-wait", title = "Watcher", s = "waiting", l = "Waiting", st = time() - 10, p = "p", sub = true },
+		{ id = "sub-need", title = "Approver", s = "input", l = "Needs your approval", p = "p", sub = true },
+	}
+	ns.Tracker:Refresh()
+	local shownIds = {}
+	for _, line in ipairs(tf.Lines) do
+		if line:IsShown() and line.thread then table.insert(shownIds, line.thread.id) end
+	end
+	check(table.concat(shownIds, ",") == "parent,sub-need", "the tracker hides working and waiting subagents while keeping ones that need the player: " .. table.concat(shownIds, ","))
 	ns.Store.data.threads = { { id = "need", title = "Approve", s = "input", l = "Needs you", p = "p" } }
 	ns.Tracker:Refresh()
 	local trackerOn = ns.db.settings.tracker
