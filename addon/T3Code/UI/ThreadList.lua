@@ -284,7 +284,7 @@ function L:Refresh(force)
 	if s.project ~= "all" and not s.project:find("^m:") and not ns.Store.projectsById[s.project] and ns.Store.applied > 0 then s.project = "all" end
 	local key = table.concat({
 		ns.Store.listKey or "", s.project, tostring(s.collapsed.working), tostring(s.collapsed.open),
-		tostring(s.collapsed.snoozed), tostring(s.collapsed.settled), tostring(ns.viewId), ns.Main.mode, self.query or "",
+		tostring(s.collapsed.snoozed), tostring(s.collapsed.settled), tostring(ns.viewId), ns.Main.mode, self.query or "", tostring(s.subagentRows),
 	}, ":")
 	if key == self.key and not force then
 		-- Only timers changed: refresh the visible rows in place.

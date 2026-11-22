@@ -109,6 +109,7 @@ local DEFAULTS = {
 		dictateSend = false,
 		steerFollowUps = true,
 		newWorktree = false,
+		subagentRows = true, -- a running subagent gets a row of its own in the list
 		quietInstances = true,
 		windowScale = "auto",
 		padChord = "auto",

@@ -23,8 +23,10 @@ function T3Code_Binding(action, keystate)
 	elseif action == "read" then
 		local id = ns.viewId
 		if not id then
-			local active = ns.Store.data.threads[1]
-			id = active and active.id
+			-- The first thread the list shows, not a subagent it leaves under its parent.
+			for _, t in ipairs(ns.Store.data.threads) do
+				if ns.Store.Listed(t) then id = t.id break end
+			end
 		end
 		local t = ns.Store:Thread(id)
 		if id then ns.Speak(t and (t.last or t.title) or "", id, "last") end

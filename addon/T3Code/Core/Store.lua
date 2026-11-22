@@ -153,8 +153,10 @@ function Store:Groups(projectFilter, query)
 	local groups = { working = {}, open = {}, snoozed = {}, settled = {} }
 	local machine = projectFilter and projectFilter:match("^m:(.+)$")
 	for _, t in ipairs(self.data.threads) do
-		local match
-		if machine then
+		local match = Store.Listed(t)
+		if not match then
+			-- Left under its parent.
+		elseif machine then
 			match = (machine == "local" and not t.env) or t.env == machine
 		else
 			match = projectFilter == "all" or projectFilter == nil or t.p == projectFilter
@@ -170,10 +172,17 @@ function Store:Groups(projectFilter, query)
 	return groups
 end
 
+-- Whether a thread gets a row of its own. The bridge lists a subagent (`sa`) only
+-- while it runs; with the setting off it stays under its parent, which shows it as
+-- Waiting, unless it needs the player.
+function Store.Listed(t)
+	return not t.sa or ns.db.settings.subagentRows or t.s == "input" or t.s == "plan"
+end
+
 function Store:Active()
 	local list = {}
 	for _, t in ipairs(self.data.threads) do
-		if t.s == "working" or t.s == "input" or t.s == "plan" or t.s == "waiting" then table.insert(list, t) end
+		if (t.s == "working" or t.s == "input" or t.s == "plan" or t.s == "waiting") and Store.Listed(t) then table.insert(list, t) end
 	end
 	return list
 end

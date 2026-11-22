@@ -58,6 +58,7 @@ local CHECKS = {
 	{ section = "voice", key = "autoRead", label = "Read finished replies aloud", title = "Read finished replies aloud", desc = "Speak the reply when a thread finishes.", after = function() ns.Transport:Touch() end },
 	{ section = "threads", key = "steerFollowUps", label = "Steer a working thread with follow-ups", title = "Steer a working thread", desc = "A message sent while a thread is working goes into its current run.", tip = "A message to a thread that's still working goes into its current run, as in T3 Code. Turn this off to queue it until the run finishes.", after = function() ns.Main:Refresh() end },
 	{ section = "threads", key = "newWorktree", label = "Start new threads in a worktree", title = "Start new threads in a worktree", desc = "Each new thread gets its own git branch and checkout, named after the task.", tip = "Each new thread gets its own git branch and checkout, so it can't collide with the project folder. T3 Code names the branch after the task." },
+	{ section = "threads", key = "subagentRows", label = "List running subagents on their own", title = "List running subagents on their own", desc = "Off: a subagent stays under its parent, which shows Waiting, unless it needs you.", tip = "A running subagent gets its own row in the thread list and tracker. Turn this off to leave it under the thread that started it, which shows Waiting until it's done. A subagent that needs your answer or approval is listed either way.", after = function() ns.ThreadList:Refresh(true); ns.Tracker:Refresh(); ns.MinimapButton:Refresh() end },
 	{ section = "voice", key = "dictateSend", label = "Send dictated messages right away", title = "Send dictated messages right away", desc = "A finished dictation is sent as soon as you stop talking." },
 	{ section = "threads", key = "quickReplies", label = "Show quick replies under finished threads", title = "Show quick replies", desc = "Suggested replies under a thread that just finished.", after = function() ns.Transcript:Refresh(true) end },
 	{ section = "window", key = "gameMenu", label = "Add T3 Code to the game menu", title = "Add T3 Code to the game menu", desc = "An entry beside the other menu buttons." },
@@ -67,7 +68,7 @@ local CHECKS = {
 local SECTIONS = {
 	{ id = "notices", label = "Notices", title = "Notices", blurb = "Popups, sounds, and when they stay quiet." },
 	{ id = "tracker", label = "Tracker", title = "Tracker", blurb = "The T3 Code section under your quests." },
-	{ id = "threads", label = "Threads", title = "Threads", blurb = "What a message does, and where a new thread starts." },
+	{ id = "threads", label = "Threads", title = "Threads", blurb = "What a message does, where a new thread starts, and what the list shows." },
 	{ id = "voice", label = "Voice", title = "Voice", blurb = "Reading replies aloud, and dictation." },
 	{ id = "window", label = "Window", title = "Window", blurb = "Where the window shows up, and which design it uses." },
 	{ id = "modern", label = "Modern", title = "Modern", blurb = "Omarchy's themes, the accent, and transparency." },

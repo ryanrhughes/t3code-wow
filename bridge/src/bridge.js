@@ -965,7 +965,10 @@ export class Bridge {
     threads = threads.filter(({ s }) => s !== 'settled' || ++settled <= 30).slice(0, 90);
     const list = threads.map(({ t, s }) => {
       usedProjects.add(t.projectId);
-      return threadRow(t, s, this.views.get(t.id)?.projection, this.busyKids(t));
+      const row = threadRow(t, s, this.views.get(t.id)?.projection, this.busyKids(t));
+      // Marked so the game can leave it under its parent (a setting).
+      if (this.underParent(t)) row.sa = true;
+      return row;
     });
     for (const p of t3.projects.values()) {
       if (p.archivedAt) continue;

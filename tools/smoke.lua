@@ -2053,6 +2053,32 @@ do
 	check(maxCalls <= 8, "trimming a title measures it a handful of times: " .. maxCalls)
 end
 
+-- A running subagent: its own row by default, left under its parent with the setting
+-- off, and listed either way while it needs the player.
+do
+	local kid = { id = "kid", title = "Kid", p = ns.Store.data.threads[1].p, s = "working", l = "Working", sa = true }
+	table.insert(ns.Store.data.threads, kid)
+	ns.Store.byId.kid = kid
+	local function listed()
+		for _, t in ipairs(ns.Store:Groups("all").working) do if t.id == "kid" then return true end end
+		for _, t in ipairs(ns.Store:Groups("all").open) do if t.id == "kid" then return true end end
+		return false
+	end
+	local function active()
+		for _, t in ipairs(ns.Store:Active()) do if t.id == "kid" then return true end end
+		return false
+	end
+	check(listed() and active(), "a running subagent is listed by default")
+	ns.db.settings.subagentRows = false
+	check(not listed() and not active(), "with the setting off it stays under its parent")
+	check(ns.Store:Thread("kid") == kid, "and still has its header when opened")
+	kid.s = "input"
+	check(listed() and active(), "but is listed while it needs the player")
+	ns.db.settings.subagentRows = true
+	table.remove(ns.Store.data.threads)
+	ns.Store.byId.kid = nil
+end
+
 -- Exhaustion
 Stub.now = Stub.now + 2
 ns.Transport.slotCursor = ns.Transport.slotCount + 1
