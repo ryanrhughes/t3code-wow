@@ -1209,9 +1209,12 @@ test('ending a turn into waiting is not announced; the wait ending is', async ()
   const remote = { ...running, id: 'remote', delegatedFrom: { environmentId: 'e2', threadId: 'p', title: 'Parent' }, _from: { key: 'e2~p', kind: 'sent' } };
   b.onT3Change({ kind: 'thread', prev: remote, thread: { ...remote, status: 'completed', activityRunStatus: null } });
   assert.deepEqual(said, ['open'], 'nor are tasks another machine delegated here');
+  b.t3.threads.delete('e2~p');
+  b.onT3Change({ kind: 'thread', prev: remote, thread: { ...remote, status: 'completed', activityRunStatus: null } });
+  assert.deepEqual(said, ['open'], 'even after the sender thread is archived or gone');
   const stray = { ...remote, id: 'stray', _from: { key: null, kind: 'sent' } };
   b.onT3Change({ kind: 'thread', prev: stray, thread: { ...stray, status: 'completed', activityRunStatus: null } });
-  assert.deepEqual(said, ['open', 'open'], 'unless the bridge doesn\'t know the thread that sent it');
+  assert.deepEqual(said, ['open', 'open'], 'unless the bridge doesn\'t know the machine that sent it');
 });
 
 test('running subagent threads are listed, idle ones are not', async () => {
@@ -1289,7 +1292,12 @@ test('a task another machine delegated here is listed and counted like a subagen
   assert.ok(ids.includes('stray-task'), 'an idle task from an unknown sender is listed');
   b.t3.threads.set(sender.id, { ...sender, archivedAt: now });
   ids = b.buildSnapshot().threads.map((t) => t.id);
-  assert.ok(ids.includes('idle-task'), 'and so is one whose sender was archived');
+  assert.ok(!ids.includes('idle-task'), 'an idle task stays unlisted after its sender is archived');
+  assert.ok(ids.includes('busy-task'), 'a running task stays listed after its sender is archived');
+  b.t3.threads.delete(sender.id);
+  ids = b.buildSnapshot().threads.map((t) => t.id);
+  assert.ok(!ids.includes('idle-task'), 'an idle task stays unlisted when its sender is no longer in the shell');
+  assert.ok(ids.includes('busy-task'), 'a running task stays listed when its sender is no longer in the shell');
 
   const { Fleet } = await import('../src/fleet.js');
   const fleet = new Fleet({ localTokens: async () => 'x' });

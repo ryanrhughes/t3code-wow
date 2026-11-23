@@ -1386,15 +1386,15 @@ export class Bridge {
     return true;
   }
 
-  // Whether the game keeps `t` under the thread whose work it is, as T3 Code's sidebar
-  // does: listed only while busy, and never announced. A task another machine delegated
-  // here counts only while its sender is a thread this bridge knows and isn't archived;
-  // otherwise nothing in game leads to it, so it's listed and announced as the player's.
+  // Whether the game keeps `t` under the thread whose work it is: listed only while
+  // busy, and never announced. A task another machine delegated here counts whenever
+  // the bridge knows the machine that sent it, even after the sender thread is
+  // archived, deleted, or older-settled; only a task from an unknown machine has
+  // nothing in game to sit under, so it stays listed and announced as the player's.
   underParent(t) {
     if (!belongsToParent(t)) return false;
     if (t.delegatedFrom == null || t.lineage?.parentThreadId) return true;
-    const sender = t._from?.key ? this.t3.threads.get(t._from.key) : null;
-    return Boolean(sender && !sender.archivedAt);
+    return Boolean(t._from?.key);
   }
 
   writeStatus() {
